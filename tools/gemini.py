@@ -17,6 +17,53 @@ def get_client():
     return genai.Client(api_key=api_key)
 
 
+def propose_skill_metadata(text: str, model: str = "gemini-2.5-flash-preview-05-06") -> list[dict]:
+    """
+    Analyze book text and propose skill names and descriptions.
+    Returns list of 3 options, each with {name, description, rationale}.
+    """
+    client = get_client()
+
+    prompt = """Analyze this book and propose 3 different Claude Code skill options.
+
+Claude Code skills are knowledge files that Claude automatically discovers based on the description.
+The description MUST include both what the skill does AND when to use it (trigger conditions).
+
+For each option, provide:
+1. name: kebab-case skill name (lowercase, hyphens, max 64 chars)
+2. description: What this skill does + when to use it (max 1024 chars)
+   - Include specific trigger keywords users would mention
+   - Be specific, not vague
+3. rationale: Brief explanation of why this name/description works
+
+Propose 3 options with different angles:
+- Option 1: Broad/general (covers the whole book's domain)
+- Option 2: Focused (emphasizes the book's unique value)
+- Option 3: Practical (emphasizes hands-on tasks/operations)
+
+Return ONLY valid JSON array, no markdown fencing:
+[{"name": "...", "description": "...", "rationale": "..."}, ...]
+
+Book text (first portion):
+"""
+
+    # Send beginning of book - usually has title, intro, TOC
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt + text[:100000],
+        config=types.GenerateContentConfig(
+            temperature=0.3,
+        )
+    )
+
+    response_text = response.text.strip()
+    if response_text.startswith("```"):
+        lines = response_text.split("\n")
+        response_text = "\n".join(lines[1:-1])
+
+    return json.loads(response_text)
+
+
 def identify_chapters(text: str, model: str = "gemini-2.5-flash-preview-05-06") -> list[dict]:
     """
     Send full book text to Gemini and get chapter breakdown.

@@ -46,24 +46,31 @@ brew install calibre
 ### Usage
 
 ```bash
+# Simple - Gemini proposes skill names/descriptions, you pick one
+python tools/process_book.py sources/my-book.pdf
+
+# Or specify explicitly
 python tools/process_book.py sources/my-book.pdf \
     --skill-name "topic-expert" \
-    --description "Expert knowledge on topic X. Use when working with X or when the user asks about X."
+    --description "Expert knowledge on topic X. Use when working with X."
 ```
 
 **Options:**
+- `--skill-name`: Skill name (kebab-case). If omitted, Gemini proposes options.
+- `--description`: Skill description. If omitted, Gemini proposes options.
 - `--model`: Gemini model for chapter processing (default: `gemini-2.5-flash-preview-05-06`)
 - `--synthesis-model`: Model for final synthesis (default: `gemini-2.5-pro-preview-05-06`)
-- `--save-intermediates`: Save chapter extracts as JSON for debugging
+- `--save-intermediates`: Save chapter extracts and skill plan as JSON
 - `--output-dir`: Where to write skills (default: `skills/`)
 
 ### How It Works
 
 1. **Extract** — Pulls text from EPUB, MOBI, or PDF
-2. **Chunk** — Sends to Gemini to identify chapter boundaries
-3. **Process** — Each chapter processed separately (extracts concepts, procedures, best practices, warnings)
-4. **Plan** — Reviews all extracts, decides what sections/examples/warnings the skill should have
-5. **Generate** — Creates the final `SKILL.md` following the plan
+2. **Propose** — (if needed) Gemini proposes 3 skill name/description options, you pick one
+3. **Chunk** — Sends to Gemini to identify chapter boundaries
+4. **Process** — Each chapter processed separately (extracts concepts, procedures, best practices, warnings)
+5. **Plan** — Reviews all extracts, decides what sections/examples/warnings the skill should have
+6. **Generate** — Creates the final `SKILL.md` following the plan
 
 ## Installing Skills
 

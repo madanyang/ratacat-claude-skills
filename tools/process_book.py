@@ -3,9 +3,8 @@
 Main entry point for converting books to Claude Code skills.
 
 Usage:
-    python tools/process_book.py sources/mybook.epub \\
-        --skill-name "my-skill" \\
-        --description "What this skill does. Use when..."
+    python tools/process_book.py sources/mybook.epub
+    python tools/process_book.py sources/mybook.epub --skill-name "my-skill" --description "..."
 
 Environment:
     GEMINI_API_KEY - Your Google AI API key
@@ -18,6 +17,7 @@ from pathlib import Path
 
 from extractors import extract_text
 from gemini import (
+    propose_skill_metadata,
     identify_chapters,
     extract_chapter_text,
     process_chapter,
@@ -26,15 +26,36 @@ from gemini import (
 )
 
 
+def select_option(prompt: str, options: list[str]) -> int:
+    """Display options and get user selection."""
+    print(prompt)
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}. {opt}")
+    print()
+
+    while True:
+        try:
+            choice = input("Enter choice (number): ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(options):
+                return idx
+            print(f"Please enter a number between 1 and {len(options)}")
+        except ValueError:
+            print("Please enter a valid number")
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert a book to a Claude Code skill"
     )
     parser.add_argument("book_path", help="Path to book (EPUB, MOBI, PDF)")
-    parser.add_argument("--skill-name", required=True,
-                        help="Skill name (kebab-case, e.g., 'postgres-expert')")
-    parser.add_argument("--description", required=True,
-                        help="Skill description for Claude discovery")
+    parser.add_argument("--skill-name",
+                        help="Skill name (kebab-case). If not provided, will propose options.")
+    parser.add_argument("--description",
+                        help="Skill description. If not provided, will propose options.")
     parser.add_argument("--output-dir", default="skills",
                         help="Output directory (default: skills)")
     parser.add_argument("--model", default="gemini-2.5-flash-preview-05-06",
@@ -53,12 +74,7 @@ def main():
 
     book_title = book_path.stem.replace("-", " ").replace("_", " ").title()
 
-    # Create output directory
-    output_dir = Path(args.output_dir) / args.skill_name
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     print(f"Processing: {book_path}")
-    print(f"Output: {output_dir}")
     print()
 
     # Step 1: Extract text
@@ -67,16 +83,49 @@ def main():
     print(f"  Extracted {len(full_text):,} characters")
     print()
 
-    # Step 2: Identify chapters
-    print("Step 2: Identifying chapters with Gemini...")
+    # Step 2: Get skill name and description (propose if not provided)
+    skill_name = args.skill_name
+    skill_description = args.description
+
+    if not skill_name or not skill_description:
+        print("Step 2: Proposing skill name and description...")
+        proposals = propose_skill_metadata(full_text, model=args.model)
+
+        print()
+        print("Choose a skill option:")
+        print()
+        for i, p in enumerate(proposals, 1):
+            print(f"  [{i}] {p['name']}")
+            print(f"      {p['description'][:100]}...")
+            print(f"      Rationale: {p['rationale']}")
+            print()
+
+        choice = select_option("", [f"{p['name']}" for p in proposals])
+        selected = proposals[choice]
+
+        skill_name = skill_name or selected['name']
+        skill_description = skill_description or selected['description']
+
+        print()
+        print(f"Selected: {skill_name}")
+        print()
+
+    # Create output directory
+    output_dir = Path(args.output_dir) / skill_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output: {output_dir}")
+    print()
+
+    # Step 3: Identify chapters
+    print("Step 3: Identifying chapters with Gemini...")
     chapters = identify_chapters(full_text, model=args.model)
     print(f"  Found {len(chapters)} chapters:")
     for i, ch in enumerate(chapters, 1):
         print(f"    {i}. {ch['title']}")
     print()
 
-    # Step 3: Process each chapter
-    print("Step 3: Processing chapters...")
+    # Step 4: Process each chapter
+    print("Step 4: Processing chapters...")
     chapter_extracts = []
 
     for i, chapter in enumerate(chapters, 1):
@@ -112,12 +161,12 @@ def main():
             json.dump(chapter_extracts, f, indent=2)
         print(f"Saved intermediates to: {intermediates_path}")
 
-    # Step 4: Plan the skill structure
-    print("Step 4: Planning skill structure with Gemini Pro...")
+    # Step 5: Plan the skill structure
+    print("Step 5: Planning skill structure with Gemini Pro...")
     skill_plan = plan_skill(
         book_title,
-        args.skill_name,
-        args.description,
+        skill_name,
+        skill_description,
         chapter_extracts,
         model=args.synthesis_model
     )
@@ -134,12 +183,12 @@ def main():
         print(f"  Saved plan to: {plan_path}")
     print()
 
-    # Step 5: Generate the skill from the plan
-    print("Step 5: Generating SKILL.md from plan...")
+    # Step 6: Generate the skill from the plan
+    print("Step 6: Generating SKILL.md from plan...")
     skill_content = generate_skill(
         book_title,
-        args.skill_name,
-        args.description,
+        skill_name,
+        skill_description,
         chapter_extracts,
         skill_plan,
         model=args.synthesis_model
