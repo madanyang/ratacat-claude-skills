@@ -58,8 +58,8 @@ python tools/process_book.py sources/my-book.pdf \
 **Options:**
 - `--skill-name`: Skill name (kebab-case). If omitted, Gemini proposes options.
 - `--description`: Skill description. If omitted, Gemini proposes options.
-- `--model`: Gemini model for chapter processing (default: `gemini-2.5-flash-preview-05-06`)
-- `--synthesis-model`: Model for final synthesis (default: `gemini-2.5-pro-preview-05-06`)
+- `--model`: Gemini model for chapter processing (default: `gemini-2.5-flash`)
+- `--synthesis-model`: Model for final synthesis (default: `gemini-2.5-pro`)
 - `--save-intermediates`: Save chapter extracts and skill plan as JSON
 - `--output-dir`: Where to write skills (default: `skills/`)
 

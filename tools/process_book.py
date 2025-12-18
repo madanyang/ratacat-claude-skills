@@ -58,9 +58,9 @@ def main():
                         help="Skill description. If not provided, will propose options.")
     parser.add_argument("--output-dir", default="skills",
                         help="Output directory (default: skills)")
-    parser.add_argument("--model", default="gemini-2.5-flash-preview-05-06",
+    parser.add_argument("--model", default="gemini-2.5-flash",
                         help="Gemini model for chapter processing")
-    parser.add_argument("--synthesis-model", default="gemini-2.5-pro-preview-05-06",
+    parser.add_argument("--synthesis-model", default="gemini-2.5-pro",
                         help="Gemini model for final synthesis")
     parser.add_argument("--save-intermediates", action="store_true",
                         help="Save intermediate chapter extracts")
@@ -134,8 +134,8 @@ def main():
         try:
             chapter_text = extract_chapter_text(
                 full_text,
-                chapter["start_marker"],
-                chapter["end_marker"]
+                chapter["start_pos"],
+                chapter["end_pos"]
             )
 
             extract = process_chapter(

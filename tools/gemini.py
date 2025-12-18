@@ -5,8 +5,45 @@ Uses google-genai SDK with Gemini 2.5 Pro/Flash.
 
 import os
 import json
+import re
 from google import genai
 from google.genai import types
+
+
+def parse_json_response(text: str) -> any:
+    """Parse JSON from LLM response, handling common issues."""
+    text = text.strip()
+
+    # Remove markdown code fencing
+    if text.startswith("```"):
+        lines = text.split("\n")
+        # Remove first line (```json or ```) and last line (```)
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        text = text.strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to extract JSON array or object
+    array_match = re.search(r'\[[\s\S]*\]', text)
+    if array_match:
+        try:
+            return json.loads(array_match.group())
+        except json.JSONDecodeError:
+            pass
+
+    object_match = re.search(r'\{[\s\S]*\}', text)
+    if object_match:
+        try:
+            return json.loads(object_match.group())
+        except json.JSONDecodeError:
+            pass
+
+    # If all else fails, raise with helpful message
+    raise ValueError(f"Could not parse JSON from response: {text[:200]}...")
 
 
 def get_client():
@@ -17,7 +54,7 @@ def get_client():
     return genai.Client(api_key=api_key)
 
 
-def propose_skill_metadata(text: str, model: str = "gemini-2.5-flash-preview-05-06") -> list[dict]:
+def propose_skill_metadata(text: str, model: str = "gemini-2.5-flash") -> list[dict]:
     """
     Analyze book text and propose skill names and descriptions.
     Returns list of 3 options, each with {name, description, rationale}.
@@ -56,68 +93,67 @@ Book text (first portion):
         )
     )
 
-    response_text = response.text.strip()
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        response_text = "\n".join(lines[1:-1])
-
-    return json.loads(response_text)
+    return parse_json_response(response.text)
 
 
-def identify_chapters(text: str, model: str = "gemini-2.5-flash-preview-05-06") -> list[dict]:
+def identify_chapters(text: str, model: str = "gemini-2.5-flash") -> list[dict]:
     """
     Send full book text to Gemini and get chapter breakdown.
-    Returns list of {title, start_marker, end_marker} for each chapter.
+    Returns list of {title, start_pos, end_pos} for each chapter.
     """
     client = get_client()
 
-    prompt = """Analyze this book text and identify all chapters or major sections.
+    # Truncate text and note the length
+    max_chars = 500000
+    truncated_text = text[:max_chars]
 
-For each chapter, provide:
+    prompt = f"""Analyze this book text and identify the main chapters (not front matter, bibliography, etc).
+
+The text is {len(truncated_text):,} characters long.
+
+For each MAIN chapter, provide:
 1. title: The chapter title/name
-2. start_marker: A unique phrase (10-20 words) that marks where this chapter begins
-3. end_marker: A unique phrase (10-20 words) that marks where this chapter ends
+2. start_pos: Approximate character position where this chapter starts (0 to {len(truncated_text)})
+3. end_pos: Approximate character position where this chapter ends
+
+Focus on substantive chapters, skip:
+- Title pages, copyright, dedication
+- Table of contents
+- Bibliography/references sections
+- Appendices (unless substantive)
 
 Return ONLY valid JSON array, no markdown fencing:
-[{"title": "...", "start_marker": "...", "end_marker": "..."}, ...]
+[{{"title": "Chapter 1: Name", "start_pos": 1000, "end_pos": 15000}}, ...]
 
 Book text:
+{truncated_text}
 """
 
     response = client.models.generate_content(
         model=model,
-        contents=prompt + text[:500000],  # Gemini has large context, but be reasonable
+        contents=prompt,
         config=types.GenerateContentConfig(
-            temperature=0.1,  # Low temp for structured output
+            temperature=0.1,
         )
     )
 
-    # Parse JSON from response
-    response_text = response.text.strip()
-    # Handle potential markdown fencing
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        response_text = "\n".join(lines[1:-1])
-
-    return json.loads(response_text)
+    return parse_json_response(response.text)
 
 
-def extract_chapter_text(full_text: str, start_marker: str, end_marker: str) -> str:
-    """Extract chapter text between markers."""
-    start_idx = full_text.find(start_marker)
-    end_idx = full_text.find(end_marker)
+def extract_chapter_text(full_text: str, start_pos: int, end_pos: int) -> str:
+    """Extract chapter text between character positions."""
+    # Clamp positions to valid range
+    start_pos = max(0, start_pos)
+    end_pos = min(len(full_text), end_pos)
 
-    if start_idx == -1:
-        raise ValueError(f"Start marker not found: {start_marker[:50]}...")
-    if end_idx == -1:
-        # If no end marker, take to end of text
-        return full_text[start_idx:]
+    if start_pos >= end_pos:
+        raise ValueError(f"Invalid positions: start={start_pos}, end={end_pos}")
 
-    return full_text[start_idx:end_idx + len(end_marker)]
+    return full_text[start_pos:end_pos]
 
 
 def process_chapter(chapter_title: str, chapter_text: str, book_title: str,
-                    model: str = "gemini-2.5-flash-preview-05-06") -> dict:
+                    model: str = "gemini-2.5-flash") -> dict:
     """
     Process a single chapter and extract key knowledge for a Claude skill.
     Returns structured knowledge dict.
@@ -162,16 +198,11 @@ Chapter text:
         )
     )
 
-    response_text = response.text.strip()
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        response_text = "\n".join(lines[1:-1])
-
-    return json.loads(response_text)
+    return parse_json_response(response.text)
 
 
 def plan_skill(book_title: str, skill_name: str, skill_description: str,
-               chapter_extracts: list[dict], model: str = "gemini-2.5-pro-preview-05-06") -> dict:
+               chapter_extracts: list[dict], model: str = "gemini-2.5-pro") -> dict:
     """
     Analyze chapter extracts and create a detailed plan for the skill.
     Returns a structured plan for what the skill should contain.
@@ -233,17 +264,12 @@ Return ONLY valid JSON:
         )
     )
 
-    response_text = response.text.strip()
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        response_text = "\n".join(lines[1:-1])
-
-    return json.loads(response_text)
+    return parse_json_response(response.text)
 
 
 def generate_skill(book_title: str, skill_name: str, skill_description: str,
                    chapter_extracts: list[dict], skill_plan: dict,
-                   model: str = "gemini-2.5-pro-preview-05-06") -> str:
+                   model: str = "gemini-2.5-pro") -> str:
     """
     Generate the final SKILL.md based on the plan.
     """
@@ -311,7 +337,7 @@ Generate the SKILL.md now:
 
 # Keep the old function for backwards compatibility, but have it use the new two-step process
 def synthesize_skill(book_title: str, skill_name: str, skill_description: str,
-                     chapter_extracts: list[dict], model: str = "gemini-2.5-pro-preview-05-06") -> str:
+                     chapter_extracts: list[dict], model: str = "gemini-2.5-pro") -> str:
     """
     Take all chapter extracts and synthesize into a comprehensive SKILL.md.
     Uses two-step process: plan then generate.
