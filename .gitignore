@@ -1,0 +1,13 @@
+# Source materials (copyrighted books, etc.)
+sources/
+
+# OS files
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Node (if we add any tooling)
+node_modules/
