@@ -80,3 +80,5 @@ NEVER use grep for project-wide searches (slow, ignores .gitignore). ALWAYS use 
 
 ### For Temp Files
 Use `tmp/`, do NOT use `/var/ or `/tmp`
+
+# THIS REPO is a FACTORY creating new Claude Skills, when you create a new skill, put it in the skills folder. 
