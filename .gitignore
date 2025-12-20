@@ -1,5 +1,7 @@
 # Source materials (copyrighted books, etc.)
 sources/
+books/
+books/
 
 # OS files
 .DS_Store
